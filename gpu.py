@@ -1,46 +1,41 @@
-import pycuda.autoinit
-import pycuda.driver as drv
-import numpy as np
-from pycuda.compiler import SourceModule
+import torch
+import time
 
-def gpu_speed_test():
-    mod = SourceModule("""
-    __global__ void multiply_them(float *dest, float *a, float *b)
-    {
-      const int i = threadIdx.x + blockDim.x * blockIdx.x;
-      dest[i] = a[i] * b[i];
-    }
-    """)
+def torch_gpu_speed_test():
+    # Check if CUDA is available
+    if not torch.cuda.is_available():
+        print("CUDA is not available. Exiting...")
+        return
 
-    multiply_them = mod.get_function("multiply_them")
+    # Set device to GPU
+    device = torch.device("cuda")
 
-    # Create large arrays
-    size = 10000000
-    a = np.random.randn(size).astype(np.float32)
-    b = np.random.randn(size).astype(np.float32)
-    dest = np.zeros_like(a)
+    # Define the size of the tensors
+    size = 5000  # You can adjust this size based on your GPU's capability
 
-    # Allocate memory on the device
-    a_gpu = drv.mem_alloc(a.nbytes)
-    b_gpu = drv.mem_alloc(b.nbytes)
-    dest_gpu = drv.mem_alloc(dest.nbytes)
+    # Initialize two random matrices
+    a = torch.randn(size, size, device=device)
+    b = torch.randn(size, size, device=device)
 
-    # Copy data to GPU
-    drv.memcpy_htod(a_gpu, a)
-    drv.memcpy_htod(b_gpu, b)
+    # Warm up GPU
+    for _ in range(10):
+        _ = torch.mm(a, b)
 
-    # Execute program on device
-    start_time = drv.Event()
-    end_time = drv.Event()
-    start_time.record()
-    
-    multiply_them(dest_gpu, a_gpu, b_gpu, block=(400,1,1), grid=(size // 400,1))
-    
-    end_time.record()
-    end_time.synchronize()
-    
-    # Time calculation
-    print(f"GPU operation took {start_time.time_till(end_time)} milliseconds")
+    torch.cuda.synchronize()  # wait for mm to finish
 
-# Call the function
-gpu_speed_test()
+    start_time = time.time()
+
+    # Perform matrix multiplication
+    for _ in range(50):
+        c = torch.mm(a, b)
+
+    torch.cuda.synchronize()  # wait for mm to finish
+
+    end_time = time.time()
+    duration = end_time - start_time
+
+    print(f"50 matrix multiplications of size {size}x{size} took {duration:.4f} seconds.")
+
+# Run the benchmark
+torch_gpu_speed_test()
+
